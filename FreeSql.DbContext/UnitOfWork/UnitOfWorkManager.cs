@@ -124,6 +124,48 @@ namespace FreeSql
                 default: throw new NotImplementedException();
             }
         }
+        
+        /// <summary>
+        /// 创建异步工作单元
+        /// </summary>
+        /// <param name="propagation">事务传播方式</param>
+        /// <param name="isolationLevel">事务隔离级别</param>
+        /// <returns></returns>
+        public async Task<IUnitOfWork> BeginAsync(Propagation propagation = Propagation.Required, IsolationLevel? isolationLevel = null)
+        {
+            switch (propagation)
+            {
+                case Propagation.Required:
+                    return await FindedUowCreateVirtualAsync() ?? await CreateUowAsync(isolationLevel);
+
+                case Propagation.Supports:
+                    return await FindedUowCreateVirtualAsync() ?? CreateUowNothing(_allUows.LastOrDefault()?.IsNotSupported ?? false);
+
+                case Propagation.Mandatory:
+                    return await FindedUowCreateVirtualAsync() ?? throw new Exception(DbContextErrorStrings.Propagation_Mandatory);
+
+                case Propagation.NotSupported:
+                    return CreateUowNothing(true);
+
+                case Propagation.Never:
+                    var isNotSupported = _allUows.LastOrDefault()?.IsNotSupported ?? false;
+                    if (isNotSupported == false)
+                    {
+                        for (var a = _rawUows.Count - 1; a >= 0; a--)
+                        {
+                            if (await _rawUows[a].Uow.GetOrBeginTransactionAsync(false) != null)
+                                throw new Exception(DbContextErrorStrings.Propagation_Never);
+                        }
+                    }
+                    return CreateUowNothing(isNotSupported);
+
+                case Propagation.Nested:
+                    return await CreateUowAsync(isolationLevel);
+
+                default:
+                    throw new NotImplementedException();
+            }
+        }
 
         IUnitOfWork FindedUowCreateVirtual()
         {
@@ -143,6 +185,27 @@ namespace FreeSql
             }
             return null;
         }
+        private async Task<IUnitOfWork> FindedUowCreateVirtualAsync()
+        {
+            var isNotSupported = _allUows.LastOrDefault()?.IsNotSupported ?? false;
+            if (isNotSupported == false)
+            {
+                for (var a = _rawUows.Count - 1; a >= 0; a--)
+                {
+                    if (await _rawUows[a].Uow.GetOrBeginTransactionAsync(false) != null)
+                    {
+                        var uow = new UnitOfWorkVirtual(_rawUows[a].Uow);
+                        var uowInfo = new UowInfo(uow, UowInfo.UowType.Virtual, isNotSupported);
+                        uow.OnDispose = () => _allUows.Remove(uowInfo);
+                        _allUows.Add(uowInfo);
+                        SetAllBindsUow();
+                        return uow;
+                    }
+                }
+            }
+            return null;
+        }
+        
         IUnitOfWork CreateUowNothing(bool isNotSupported)
         {
             var uow = new UnitOfWorkNothing(Orm);
@@ -159,6 +222,34 @@ namespace FreeSql
             if (isolationLevel != null) uow.IsolationLevel = isolationLevel.Value;
             try { uow.GetOrBeginTransaction(); }
             catch { uow.Dispose(); throw; }
+
+            uow.OnDispose = () =>
+            {
+                _rawUows.Remove(uowInfo);
+                _allUows.Remove(uowInfo);
+                SetAllBindsUow();
+            };
+            _rawUows.Add(uowInfo);
+            _allUows.Add(uowInfo);
+            SetAllBindsUow();
+            return uow;
+        }
+        
+        private async Task<IUnitOfWork> CreateUowAsync(IsolationLevel? isolationLevel)
+        {
+            var uow = new UnitOfWorkOrginal(new UnitOfWork(OrmOriginal));
+            var uowInfo = new UowInfo(uow, UowInfo.UowType.Orginal, false);
+            if (isolationLevel != null)
+                uow.IsolationLevel = isolationLevel.Value;
+            try
+            {
+                await uow.GetOrBeginTransactionAsync();
+            }
+            catch
+            {
+                await uow.DisposeAsync();
+                throw;
+            }
 
             uow.OnDispose = () =>
             {

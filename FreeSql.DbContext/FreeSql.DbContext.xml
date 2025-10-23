@@ -672,6 +672,14 @@
             <param name="isolationLevel">事务隔离级别</param>
             <returns></returns>
         </member>
+        <member name="M:FreeSql.UnitOfWorkManager.BeginAsync(FreeSql.Propagation,System.Nullable{System.Data.IsolationLevel})">
+            <summary>
+            创建异步工作单元
+            </summary>
+            <param name="propagation">事务传播方式</param>
+            <param name="isolationLevel">事务隔离级别</param>
+            <returns></returns>
+        </member>
         <member name="T:FreeSql.Propagation">
             <summary>
             事务传播方式
