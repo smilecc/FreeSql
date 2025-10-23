@@ -613,6 +613,13 @@
             <param name="isCreate">若未开启事务，则开启</param>
             <returns></returns>
         </member>
+        <member name="M:FreeSql.IUnitOfWork.GetOrBeginTransactionAsync(System.Boolean)">
+            <summary>
+            开启事务，或者返回已开启的事务
+            </summary>
+            <param name="isCreate">若未开启事务，则开启</param>
+            <returns></returns>
+        </member>
         <member name="P:FreeSql.IUnitOfWork.EntityChangeReport">
             <summary>
             工作单元内的实体变化跟踪
@@ -762,6 +769,14 @@
             创建基于工作单元，务必使用 using 包含使用
             </summary>
             <param name="that"></param>
+            <returns></returns>
+        </member>
+        <member name="M:Microsoft.Extensions.DependencyInjection.FreeSqlRepositoryDependencyInjection.AddFreeRepository(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Reflection.Assembly[])">
+            <summary>
+            批量注入 Repository，可以参考代码自行调整
+            </summary>
+            <param name="services"></param>
+            <param name="assemblies"></param>
             <returns></returns>
         </member>
     </members>

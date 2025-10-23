@@ -5,6 +5,7 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FreeSql
 {
@@ -220,6 +221,17 @@ namespace FreeSql
                 _baseUow.Dispose();
                 OnDispose?.Invoke();
             }
+            public ValueTask CommitAsync() => _baseUow.CommitAsync();
+            public ValueTask RollbackAsync() => _baseUow.RollbackAsync();
+            public Task<DbTransaction> GetOrBeginTransactionAsync(bool isCreate = true)
+            {
+                return _baseUow.GetOrBeginTransactionAsync(isCreate);
+            }
+            public async ValueTask DisposeAsync()
+            {
+                await _baseUow.DisposeAsync();
+                OnDispose?.Invoke();
+            }
         }
         class UnitOfWorkVirtual : IUnitOfWork
         {
@@ -235,6 +247,17 @@ namespace FreeSql
             public void Commit() { }
             public void Rollback() => _baseUow.Rollback();
             public void Dispose() => OnDispose?.Invoke();
+            public ValueTask CommitAsync() => default;
+            public ValueTask RollbackAsync() => _baseUow.RollbackAsync();
+            public Task<DbTransaction> GetOrBeginTransactionAsync(bool isCreate = true)
+            {
+                return _baseUow.GetOrBeginTransactionAsync(isCreate);
+            }
+            public ValueTask DisposeAsync()
+            {
+                OnDispose?.Invoke();
+                return default;
+            }
         }
         class UnitOfWorkNothing : IUnitOfWork
         {
@@ -255,6 +278,27 @@ namespace FreeSql
             }
             public void Rollback() => EntityChangeReport?.Report.Clear();
             public void Dispose() => OnDispose?.Invoke();
+
+            public ValueTask CommitAsync()
+            {
+                Commit();
+                return default;
+            }
+
+            public ValueTask RollbackAsync()
+            {
+                Rollback();
+                return default;
+            }
+            public Task<DbTransaction> GetOrBeginTransactionAsync(bool isCreate = true)
+            {
+                return Task.FromResult(GetOrBeginTransaction(isCreate));
+            }
+            public ValueTask DisposeAsync()
+            {
+                OnDispose?.Invoke();
+                return default;
+            }
         }
     }
 

@@ -6,6 +6,7 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FreeSql
 {
@@ -67,6 +68,41 @@ namespace FreeSql
 
         DbContextScopedFreeSql _ormScoped;
         public IFreeSql Orm => _ormScoped ?? (_ormScoped = DbContextScopedFreeSql.Create(_fsql, null, () => this));
+
+        public async Task<DbTransaction> GetOrBeginTransactionAsync(bool isCreate = true)
+        {
+            if (_tran != null) return _tran;
+            if (isCreate == false) return null;
+            if (!Enable) return null;
+            if (_conn != null) _fsql.Ado.MasterPool.Return(_conn);
+
+            _tranBefore = new Aop.TraceBeforeEventArgs("BeginTransaction", IsolationLevel);
+            _fsql?.Aop.TraceBeforeHandler?.Invoke(this, _tranBefore);
+            try
+            {
+                _conn = _fsql.Ado.MasterPool.Get();
+                try
+                {
+                    _tran = IsolationLevel == null ?
+                        await _conn.Value.BeginTransactionAsync() :
+                        await _conn.Value.BeginTransactionAsync(IsolationLevel.Value);
+
+                    this.Id = $"{DateTime.Now.ToString("yyyyMMdd_HHmmss")}_{Interlocked.Increment(ref _seed)}";
+                    DebugBeingUsed.TryAdd(this.Id, this);
+                }
+                catch
+                {
+                    ReturnObject();
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "失败", ex));
+                throw;
+            }
+            return _tran;
+        }
 
         public IsolationLevel? IsolationLevel { get; set; }
 
@@ -132,6 +168,35 @@ namespace FreeSql
                 _tranBefore = null;
             }
         }
+
+        public async ValueTask CommitAsync()
+        {
+            var isCommited = false;
+            try
+            {
+                if (_tran != null)
+                {
+                    if (_tran.Connection != null) await _tran.CommitAsync();
+                    isCommited = true;
+                    _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "提交", null));
+
+                    if (EntityChangeReport != null && EntityChangeReport.OnChange != null && EntityChangeReport.Report.Any() == true)
+                        EntityChangeReport.OnChange.Invoke(EntityChangeReport.Report);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (isCommited == false)
+                    _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "提交失败", ex));
+                throw;
+            }
+            finally
+            {
+                ReturnObject();
+                _tranBefore = null;
+            }
+        }
+
         public void Rollback()
         {
             var isRollbacked = false;
@@ -140,6 +205,31 @@ namespace FreeSql
                 if (_tran != null)
                 {
                     if (_tran.Connection != null) _tran.Rollback();
+                    isRollbacked = true;
+                    _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "回滚", null));
+                }
+            }
+            catch (Exception ex)
+            {
+                if (isRollbacked == false)
+                    _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "回滚失败", ex));
+                throw;
+            }
+            finally
+            {
+                ReturnObject();
+                _tranBefore = null;
+            }
+        }
+
+        public async ValueTask RollbackAsync()
+        {
+            var isRollbacked = false;
+            try
+            {
+                if (_tran != null)
+                {
+                    if (_tran.Connection != null) await _tran.RollbackAsync();
                     isRollbacked = true;
                     _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_tranBefore, "回滚", null));
                 }
@@ -169,6 +259,20 @@ namespace FreeSql
             try
             {
                 this.Rollback();
+            }
+            finally
+            {
+                _fsql?.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(_uowBefore, "释放", null));
+                GC.SuppressFinalize(this);
+            }
+        }
+        
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Increment(ref _disposeCounter) != 1) return;
+            try
+            {
+                await this.RollbackAsync();
             }
             finally
             {
