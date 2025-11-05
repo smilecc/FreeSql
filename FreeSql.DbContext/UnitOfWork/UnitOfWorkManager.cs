@@ -12,7 +12,7 @@ namespace FreeSql
     /// <summary>
     /// 工作单元管理器
     /// </summary>
-    public class UnitOfWorkManager : IDisposable
+    public class UnitOfWorkManager : IDisposable, IAsyncDisposable
     {
         internal DbContextScopedFreeSql _ormScoped;
         internal IFreeSql OrmOriginal => _ormScoped?._originalFsql;
@@ -29,6 +29,35 @@ namespace FreeSql
 
         #region Dispose
         ~UnitOfWorkManager() => this.Dispose();
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Increment(ref _disposeCounter) != 1) return;
+            try
+            {
+                Exception exception = null;
+                for (var a = _rawUows.Count - 1; a >= 0; a--)
+                {
+                    try
+                    {
+                        if (exception == null) await _rawUows[a].Uow.CommitAsync();
+                        else await _rawUows[a].Uow.RollbackAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (exception == null) exception = ex;
+                    }
+                }
+                if (exception != null) throw exception;
+            }
+            finally
+            {
+                _rawUows.Clear();
+                _allUows.Clear();
+                _binds.Clear();
+                GC.SuppressFinalize(this);
+            }
+        }
+
         int _disposeCounter;
         public void Dispose()
         {
