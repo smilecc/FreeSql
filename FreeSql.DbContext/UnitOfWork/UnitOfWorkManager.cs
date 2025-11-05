@@ -12,7 +12,7 @@ namespace FreeSql
     /// <summary>
     /// 工作单元管理器
     /// </summary>
-    public interface IUnitOfWorkManager : IDisposable
+    public interface IUnitOfWorkManager : IDisposable, IAsyncDisposable
     {
         IFreeSql Orm { get; }
         /// <summary>
@@ -36,7 +36,7 @@ namespace FreeSql
     /// <summary>
     /// 工作单元管理器
     /// </summary>
-    public class UnitOfWorkManager : IUnitOfWorkManager, IDisposable, IAsyncDisposable
+    public class UnitOfWorkManager : IUnitOfWorkManager
     {
         internal DbContextScopedFreeSql _ormScoped;
         internal IFreeSql OrmOriginal => _ormScoped?._originalFsql;
